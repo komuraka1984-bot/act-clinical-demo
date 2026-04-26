@@ -8,6 +8,142 @@ st.set_page_config(
 )
 
 # =========================================================
+# Language
+# =========================================================
+LANG = {
+    "English": {
+        "title": "ACT Clinical Decision Support",
+        "about": "About this app",
+        "about_text": (
+            "For psoriasis, DLQI is always used and PASI can be added with Use PASI. "
+            "DLQI–PASI divergence is used to reduce overconfident structural convergence."
+        ),
+        "input": "Input",
+        "output": "Output",
+        "disease": "Disease",
+        "ad": "Atopic Dermatitis",
+        "psoriasis": "Psoriasis",
+        "duration": "Duration / observation window",
+        "trajectory": "Trajectory",
+        "response": "Response",
+        "improving": "Improving",
+        "stable": "Stable",
+        "worsening": "Worsening",
+        "good": "Good",
+        "partial": "Partial",
+        "none": "None",
+        "metrics": "Metrics",
+        "metric_guide": "Metric guide",
+        "use_pasi": "Use PASI",
+        "run": "Run ACT Analysis",
+        "input_summary": "Input Summary",
+        "act_core": "ACT Core",
+        "recommendation": "Recommendation",
+        "convergence": "Convergence",
+        "residual": "Residual",
+        "eie": "EIE",
+        "score": "Score",
+        "safety": "Safety",
+        "improvement": "Improvement",
+        "divergence": "DLQI–PASI Divergence",
+        "severity": "Severity",
+        "interpretation": "Interpretation",
+        "empty": "Enter values on the left and run the analysis.",
+        "psoriasis_logic": (
+            "Psoriasis logic uses DLQI/PASI residual burden, structural convergence, "
+            "DLQI–PASI divergence, and severity-adjusted EIE."
+        ),
+        "duration_note": (
+            "Duration is intentionally weakly reflected as a supporting factor, "
+            "not as a dominant driver."
+        ),
+        "ad_logic": (
+            "AD logic uses ADCT-weighted residual burden, convergence, EIE, "
+            "and disease-control thresholds."
+        ),
+        "escalate": "🔴 ESCALATE",
+        "optimize": "🟠 OPTIMIZE",
+        "maintain": "🟢 MAINTAIN",
+        "observe": "⚪ OBSERVE",
+    },
+    "日本語": {
+        "title": "ACT 臨床意思決定支援",
+        "about": "このアプリについて",
+        "about_text": (
+            "乾癬ではDLQIを必須指標とし、Use PASIをオンにするとPASIを追加できます。"
+            "DLQI–PASIの乖離を用いて、構造的一致性の過大評価を抑制します。"
+        ),
+        "input": "入力",
+        "output": "出力",
+        "disease": "疾患",
+        "ad": "アトピー性皮膚炎",
+        "psoriasis": "乾癬",
+        "duration": "期間 / 観察ウィンドウ",
+        "trajectory": "経過",
+        "response": "治療反応",
+        "improving": "改善",
+        "stable": "安定",
+        "worsening": "悪化",
+        "good": "良好",
+        "partial": "部分的",
+        "none": "なし",
+        "metrics": "指標",
+        "metric_guide": "指標ガイド",
+        "use_pasi": "PASIを使用",
+        "run": "ACT解析を実行",
+        "input_summary": "入力サマリー",
+        "act_core": "ACTコア",
+        "recommendation": "推奨",
+        "convergence": "構造的一致性",
+        "residual": "残存負荷",
+        "eie": "EIE",
+        "score": "スコア",
+        "safety": "安全性",
+        "improvement": "改善度",
+        "divergence": "DLQI–PASI乖離",
+        "severity": "重症度",
+        "interpretation": "解釈",
+        "empty": "左側に値を入力し、解析を実行してください。",
+        "psoriasis_logic": (
+            "乾癬ロジックでは、DLQI/PASIの残存負荷、構造的一致性、"
+            "DLQI–PASI乖離、重症度補正EIEを用いています。"
+        ),
+        "duration_note": (
+            "期間は意図的に弱く反映しており、主要因ではなく補助因子として扱います。"
+        ),
+        "ad_logic": (
+            "ADロジックでは、ADCTを重視した残存負荷、構造的一致性、EIE、"
+            "疾患コントロール閾値を用いています。"
+        ),
+        "escalate": "🔴 強化",
+        "optimize": "🟠 最適化",
+        "maintain": "🟢 維持",
+        "observe": "⚪ 経過観察",
+    }
+}
+
+language = st.sidebar.selectbox("Language / 言語", ["English", "日本語"])
+T = LANG[language]
+
+# Internal value maps
+DISEASE_MAP = {
+    T["ad"]: "Atopic Dermatitis",
+    T["psoriasis"]: "Psoriasis",
+}
+
+TRAJECTORY_MAP = {
+    T["improving"]: "Improving",
+    T["stable"]: "Stable",
+    T["worsening"]: "Worsening",
+}
+
+RESPONSE_MAP = {
+    T["good"]: "Good",
+    T["partial"]: "Partial",
+    T["none"]: "None",
+}
+
+# =========================================================
 # Helpers
 # =========================================================
 def clamp(x, lo=0.0, hi=1.0):
@@ -24,8 +160,8 @@ def compute_metric_stats(name, prev, curr, min_v, max_v, weight=1.0):
     delta = curr - prev
     norm = delta / scale
 
-    burden_prev = (prev - min_v) / scale
-    burden_curr = (curr - min_v) / scale
+    burden_prev = clamp((prev - min_v) / scale)
+    burden_curr = clamp((curr - min_v) / scale)
 
     return {
         "name": name,
@@ -33,8 +169,8 @@ def compute_metric_stats(name, prev, curr, min_v, max_v, weight=1.0):
         "curr": curr,
         "delta": delta,
         "normalized_delta": norm,
-        "burden_prev": clamp(burden_prev),
-        "burden_curr": clamp(burden_curr),
+        "burden_prev": burden_prev,
+        "burden_curr": burden_curr,
         "improvement_gain": max(0.0, burden_prev - burden_curr),
         "weight": weight,
     }
@@ -43,10 +179,10 @@ def compute_metric_stats(name, prev, curr, min_v, max_v, weight=1.0):
 # Convergence
 # =========================================================
 def compute_convergence(metrics: List[dict]) -> float:
-    weighted = []
+    if not metrics:
+        return 0.0
 
-    for m in metrics:
-        weighted.append(m.get("weight", 1.0) * m["normalized_delta"])
+    weighted = [m.get("weight", 1.0) * m["normalized_delta"] for m in metrics]
 
     signs = [1 if v > 0 else -1 if v < 0 else 0 for v in weighted]
     nz = [s for s in signs if s != 0]
@@ -64,11 +200,41 @@ def compute_convergence(metrics: List[dict]) -> float:
     var = safe_mean([(x - mean_val) ** 2 for x in abs_vals])
     compactness = 1 / (1 + 5 * var)
 
-    return clamp(
+    convergence = clamp(
         0.60 * coherence +
         0.30 * magnitude +
         0.10 * compactness
     )
+
+    # Single-indicator ACT should not overclaim structural convergence
+    if len(metrics) == 1:
+        convergence *= 0.60
+
+    return clamp(convergence)
+
+# =========================================================
+# Psoriasis-specific logic
+# =========================================================
+def compute_psoriasis_divergence(metric_map):
+    dlqi = metric_map.get("DLQI")
+    pasi = metric_map.get("PASI")
+
+    if dlqi is None or pasi is None:
+        return 0.0
+
+    return clamp(abs(dlqi["burden_curr"] - pasi["burden_curr"]))
+
+def compute_psoriasis_severity(metric_map):
+    dlqi = metric_map.get("DLQI")
+    pasi = metric_map.get("PASI")
+
+    vals = []
+    if dlqi is not None:
+        vals.append(dlqi["burden_curr"])
+    if pasi is not None:
+        vals.append(pasi["burden_curr"])
+
+    return clamp(max(vals) if vals else 0.0)
 
 # =========================================================
 # ACT score
@@ -77,34 +243,52 @@ def score_act(disease, duration, progression, response, metrics):
     if not metrics:
         return None
 
+    metric_map = {m["name"]: m for m in metrics}
+
     total_w = sum(m.get("weight", 1.0) for m in metrics)
     residual = sum(m["burden_curr"] * m.get("weight", 1.0) for m in metrics) / total_w
     improvement = sum(m["improvement_gain"] * m.get("weight", 1.0) for m in metrics) / total_w
+
     convergence = compute_convergence(metrics)
 
     response_factor = {"Good": 1.0, "Partial": 0.8, "None": 0.5}[response]
     traj_factor = {"Improving": 0.8, "Stable": 0.9, "Worsening": 1.0}[progression]
 
-    duration_factor = clamp(duration / 24.0)
+    # Duration is intentionally weak
+    duration_factor = clamp(duration / 60.0)
+
+    divergence = 0.0
+    severity = residual
+
+    if disease == "Psoriasis":
+        divergence = compute_psoriasis_divergence(metric_map)
+        severity = compute_psoriasis_severity(metric_map)
+
+        # Penalize convergence when DLQI and PASI are structurally discordant
+        convergence = clamp(convergence * (1.0 - 0.45 * divergence))
 
     safety = clamp(
-        0.30 * convergence +
-        0.25 * response_factor +
-        0.20 * traj_factor +
-        0.15 * residual +
-        0.10 * duration_factor
+        0.32 * convergence +
+        0.23 * response_factor +
+        0.18 * traj_factor +
+        0.20 * residual +
+        0.07 * duration_factor
     )
 
     residual_opportunity = clamp(
-        0.50 * residual +
-        0.30 * improvement +
-        0.20 * convergence
+        0.48 * residual +
+        0.27 * improvement +
+        0.20 * convergence +
+        0.05 * duration_factor
     )
 
     eie_core = 0.35 * safety + 0.65 * residual_opportunity
     eie = clamp(eie_core * (0.40 + 0.60 * convergence))
 
-    metric_map = {m["name"]: m for m in metrics}
+    if disease == "Psoriasis":
+        severity_boost = 0.85 + 0.25 * severity
+        divergence_penalty = 1.0 - 0.30 * divergence
+        eie = clamp(eie * severity_boost * divergence_penalty)
 
     if disease == "Atopic Dermatitis":
         adct = metric_map.get("ADCT", {}).get("curr", None)
@@ -125,18 +309,20 @@ def score_act(disease, duration, progression, response, metrics):
         else:
             rec = "observe"
 
-    else:  # Psoriasis
-        dlqi = metric_map.get("DLQI", {}).get("curr", None)
-        pasi = metric_map.get("PASI", {}).get("curr", None)
+    else:
+        dlqi_curr = metric_map.get("DLQI", {}).get("curr", None)
+        pasi_curr = metric_map.get("PASI", {}).get("curr", None)
 
         severe_psoriasis = False
-        if dlqi is not None and dlqi >= 10:
+        if dlqi_curr is not None and dlqi_curr >= 10:
             severe_psoriasis = True
-        if pasi is not None and pasi >= 10:
+        if pasi_curr is not None and pasi_curr >= 10:
             severe_psoriasis = True
 
-        if convergence < 0.25:
+        if convergence < 0.22:
             rec = "observe"
+        elif divergence >= 0.45 and eie < 0.65:
+            rec = "optimize"
         elif severe_psoriasis and eie >= 0.50:
             rec = "escalate"
         elif eie >= 0.60:
@@ -154,6 +340,8 @@ def score_act(disease, duration, progression, response, metrics):
         "residual": residual,
         "safety": safety,
         "improvement": improvement,
+        "divergence": divergence,
+        "severity": severity,
         "rec": rec,
         "score": int(eie * 100),
     }
@@ -163,10 +351,10 @@ def score_act(disease, duration, progression, response, metrics):
 # =========================================================
 def rec_label(rec: str) -> str:
     return {
-        "escalate": "🔴 ESCALATE",
-        "optimize": "🟠 OPTIMIZE",
-        "maintain": "🟢 MAINTAIN",
-        "observe": "⚪ OBSERVE",
+        "escalate": T["escalate"],
+        "optimize": T["optimize"],
+        "maintain": T["maintain"],
+        "observe": T["observe"],
     }.get(rec, rec.upper())
 
 def metric_delta_text(prev: float, curr: float) -> str:
@@ -276,13 +464,10 @@ st.markdown(
 # =========================================================
 # Header
 # =========================================================
-st.title("ACT Clinical Decision Support")
+st.title(T["title"])
 
-with st.expander("About this app"):
-    st.write(
-        "Compact single-screen layout: Input on the left, Output on the right. "
-        "For psoriasis, DLQI is always used and PASI can be added with the Use PASI option."
-    )
+with st.expander(T["about"]):
+    st.write(T["about_text"])
 
 # =========================================================
 # Session state
@@ -293,6 +478,16 @@ if "act_result" not in st.session_state:
     st.session_state.act_result = None
 if "act_metrics" not in st.session_state:
     st.session_state.act_metrics = []
+if "act_disease" not in st.session_state:
+    st.session_state.act_disease = None
+if "act_display_disease" not in st.session_state:
+    st.session_state.act_display_disease = None
+if "act_duration" not in st.session_state:
+    st.session_state.act_duration = None
+if "act_progression_label" not in st.session_state:
+    st.session_state.act_progression_label = None
+if "act_response_label" not in st.session_state:
+    st.session_state.act_response_label = None
 
 # =========================================================
 # Layout
@@ -304,30 +499,38 @@ left, right = st.columns([1.0, 1.05], gap="small")
 # ---------------------------------------------------------
 with left:
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-label">Input</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-label">{T["input"]}</div>', unsafe_allow_html=True)
 
     top1, top2 = st.columns(2)
     with top1:
-        disease = st.selectbox("Disease", ["Atopic Dermatitis", "Psoriasis"])
+        disease_label = st.selectbox(T["disease"], [T["ad"], T["psoriasis"]])
+        disease = DISEASE_MAP[disease_label]
     with top2:
-        duration = st.number_input("Duration / observation window", value=15.0, min_value=0.0, step=1.0)
+        duration = st.number_input(
+            T["duration"],
+            value=15.0,
+            min_value=0.0,
+            step=1.0
+        )
 
     top3, top4 = st.columns(2)
     with top3:
-        progression = st.selectbox("Trajectory", ["Improving", "Stable", "Worsening"])
+        progression_label = st.selectbox(T["trajectory"], [T["improving"], T["stable"], T["worsening"]])
+        progression = TRAJECTORY_MAP[progression_label]
     with top4:
-        response = st.selectbox("Response", ["Good", "Partial", "None"])
+        response_label = st.selectbox(T["response"], [T["good"], T["partial"], T["none"]])
+        response = RESPONSE_MAP[response_label]
 
-    st.markdown('<div class="small-label">Metrics</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="small-label">{T["metrics"]}</div>', unsafe_allow_html=True)
 
     metrics = []
 
     if disease == "Atopic Dermatitis":
-        with st.expander("Metric guide"):
-            st.write("ADCT: patient-reported disease control, 0–24")
-            st.write("EASI: eczema severity, 0–72")
-            st.write("Itch NRS: itch severity, 0–10")
-            st.write("Sleep NRS: sleep disturbance, 0–10")
+        with st.expander(T["metric_guide"]):
+            st.write("ADCT: 0–24")
+            st.write("EASI: 0–72")
+            st.write("Itch NRS: 0–10")
+            st.write("Sleep NRS: 0–10")
 
         m1, m2 = st.columns(2)
         with m1:
@@ -361,12 +564,12 @@ with left:
         ]
 
     else:
-        with st.expander("Metric guide"):
-            st.write("DLQI: dermatology quality of life, 0–30")
-            st.write("PASI: psoriasis area and severity index, 0–72")
-            st.write("Use PASI can be turned off when only DLQI is available.")
+        with st.expander(T["metric_guide"]):
+            st.write("DLQI: 0–30")
+            st.write("PASI: 0–72")
+            st.write(T["duration_note"])
 
-        use_pasi = st.checkbox("Use PASI", value=True)
+        use_pasi = st.checkbox(T["use_pasi"], value=True)
 
         p1, p2 = st.columns(2)
         with p1:
@@ -389,11 +592,16 @@ with left:
                 compute_metric_stats("PASI", pasi_prev, pasi_curr, 0, 72, weight=1.6)
             )
 
-    run = st.button("Run ACT Analysis", use_container_width=True)
+    run = st.button(T["run"], use_container_width=True)
 
     if run:
         st.session_state.act_result = score_act(disease, duration, progression, response, metrics)
         st.session_state.act_metrics = metrics
+        st.session_state.act_disease = disease
+        st.session_state.act_display_disease = disease_label
+        st.session_state.act_duration = duration
+        st.session_state.act_progression_label = progression_label
+        st.session_state.act_response_label = response_label
         st.session_state.act_has_run = True
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -403,16 +611,17 @@ with left:
 # ---------------------------------------------------------
 with right:
     st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown('<div class="section-label">Output</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="section-label">{T["output"]}</div>', unsafe_allow_html=True)
 
     if st.session_state.act_has_run and st.session_state.act_result is not None:
         r = st.session_state.act_result
         metrics_out = st.session_state.act_metrics
+        disease_out = st.session_state.act_disease
 
         upper1, upper2 = st.columns([1.0, 1.0])
 
         with upper1:
-            st.markdown("**Input Summary**")
+            st.markdown(f"**{T['input_summary']}**")
             for m in metrics_out:
                 st.metric(
                     m["name"],
@@ -421,11 +630,11 @@ with right:
                 )
 
         with upper2:
-            st.markdown("**ACT Core**")
-            st.metric("Convergence", f"{r['convergence']:.2f}")
-            st.metric("Residual", f"{r['residual']:.2f}")
-            st.metric("EIE", f"{r['eie']:.2f}")
-            st.metric("Score", r["score"])
+            st.markdown(f"**{T['act_core']}**")
+            st.metric(T["convergence"], f"{r['convergence']:.2f}")
+            st.metric(T["residual"], f"{r['residual']:.2f}")
+            st.metric(T["eie"], f"{r['eie']:.2f}")
+            st.metric(T["score"], r["score"])
 
         rec_class = {
             "escalate": "rec-escalate",
@@ -434,7 +643,7 @@ with right:
             "observe": "rec-observe",
         }[r["rec"]]
 
-        st.markdown("**Recommendation**")
+        st.markdown(f"**{T['recommendation']}**")
         st.markdown(
             f'<div class="rec-box {rec_class}">{rec_label(r["rec"])}</div>',
             unsafe_allow_html=True
@@ -442,21 +651,30 @@ with right:
 
         low1, low2 = st.columns(2)
         with low1:
-            st.metric("Safety", f"{r['safety']:.2f}")
+            st.metric(T["safety"], f"{r['safety']:.2f}")
         with low2:
-            st.metric("Improvement", f"{r['improvement']:.2f}")
+            st.metric(T["improvement"], f"{r['improvement']:.2f}")
 
-        with st.expander("Interpretation"):
-            st.write(f"Disease: {disease}")
-            st.write(f"Duration / observation window: {duration:.1f}")
-            st.write(f"Trajectory: {progression}")
-            st.write(f"Response: {response}")
-            st.write(
-                "Recommendation is derived from convergence, residual burden, EIE, "
-                "and disease-specific logic."
-            )
+        if disease_out == "Psoriasis":
+            p_low1, p_low2 = st.columns(2)
+            with p_low1:
+                st.metric(T["divergence"], f"{r['divergence']:.2f}")
+            with p_low2:
+                st.metric(T["severity"], f"{r['severity']:.2f}")
+
+        with st.expander(T["interpretation"]):
+            st.write(f"{T['disease']}: {st.session_state.act_display_disease}")
+            st.write(f"{T['duration']}: {st.session_state.act_duration:.1f}")
+            st.write(f"{T['trajectory']}: {st.session_state.act_progression_label}")
+            st.write(f"{T['response']}: {st.session_state.act_response_label}")
+
+            if disease_out == "Psoriasis":
+                st.write(T["psoriasis_logic"])
+                st.write(T["duration_note"])
+            else:
+                st.write(T["ad_logic"])
 
     else:
-        st.info("Enter values on the left and run the analysis.")
+        st.info(T["empty"])
 
     st.markdown('</div>', unsafe_allow_html=True)
