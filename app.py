@@ -16,7 +16,9 @@ LANG = {
         "about": "About this app",
         "about_text": (
             "For psoriasis, DLQI is always used and PASI can be added with Use PASI. "
-            "DLQI–PASI divergence is used to reduce overconfident structural convergence."
+            "DLQI–PASI divergence is used to reduce overconfident structural convergence. "
+            "The psoriasis logic is tuned to support escalation when residual burden and "
+            "structural convergence coexist."
         ),
         "input": "Input",
         "output": "Output",
@@ -51,7 +53,8 @@ LANG = {
         "empty": "Enter values on the left and run the analysis.",
         "psoriasis_logic": (
             "Psoriasis logic uses DLQI/PASI residual burden, structural convergence, "
-            "DLQI–PASI divergence, and severity-adjusted EIE."
+            "DLQI–PASI divergence, and severity-adjusted EIE. Escalation is favored "
+            "when residual disease burden and structural convergence coexist."
         ),
         "duration_note": (
             "Duration is intentionally weakly reflected as a supporting factor, "
@@ -72,6 +75,8 @@ LANG = {
         "about_text": (
             "乾癬ではDLQIを必須指標とし、Use PASIをオンにするとPASIを追加できます。"
             "DLQI–PASIの乖離を用いて、構造的一致性の過大評価を抑制します。"
+            "乾癬ロジックでは、残存負荷と構造的一致性が共存する場合に、"
+            "治療強化が出やすいように調整しています。"
         ),
         "input": "入力",
         "output": "出力",
@@ -107,6 +112,7 @@ LANG = {
         "psoriasis_logic": (
             "乾癬ロジックでは、DLQI/PASIの残存負荷、構造的一致性、"
             "DLQI–PASI乖離、重症度補正EIEを用いています。"
+            "残存負荷と構造的一致性が共存する場合、治療強化を支持しやすくしています。"
         ),
         "duration_note": (
             "期間は意図的に弱く反映しており、主要因ではなく補助因子として扱います。"
@@ -125,7 +131,6 @@ LANG = {
 language = st.sidebar.selectbox("Language / 言語", ["English", "日本語"])
 T = LANG[language]
 
-# Internal value maps
 DISEASE_MAP = {
     T["ad"]: "Atopic Dermatitis",
     T["psoriasis"]: "Psoriasis",
@@ -286,8 +291,9 @@ def score_act(disease, duration, progression, response, metrics):
     eie = clamp(eie_core * (0.40 + 0.60 * convergence))
 
     if disease == "Psoriasis":
-        severity_boost = 0.85 + 0.25 * severity
-        divergence_penalty = 1.0 - 0.30 * divergence
+        # Slightly more escalation-sensitive psoriasis tuning
+        severity_boost = 0.88 + 0.32 * severity
+        divergence_penalty = 1.0 - 0.28 * divergence
         eie = clamp(eie * severity_boost * divergence_penalty)
 
     if disease == "Atopic Dermatitis":
@@ -319,18 +325,34 @@ def score_act(disease, duration, progression, response, metrics):
         if pasi_curr is not None and pasi_curr >= 10:
             severe_psoriasis = True
 
+        # -------------------------------------------------
+        # Revised psoriasis recommendation logic
+        # Aim:
+        # - Reduce excessive OPTIMIZE calls
+        # - Increase ESCALATE when residual burden + convergence coexist
+        # - Avoid over-escalation when DLQI/PASI are discordant
+        # -------------------------------------------------
         if convergence < 0.22:
             rec = "observe"
-        elif divergence >= 0.45 and eie < 0.65:
-            rec = "optimize"
-        elif severe_psoriasis and eie >= 0.50:
+
+        elif severe_psoriasis and residual >= 0.38 and convergence >= 0.35 and divergence < 0.45:
             rec = "escalate"
-        elif eie >= 0.60:
+
+        elif eie >= 0.52 and residual >= 0.32 and convergence >= 0.30 and divergence < 0.50:
             rec = "escalate"
-        elif eie >= 0.40:
+
+        elif divergence >= 0.45 and severity >= 0.40:
             rec = "optimize"
-        elif safety >= 0.40:
+
+        elif eie >= 0.42 and residual >= 0.28:
+            rec = "optimize"
+
+        elif safety >= 0.42 and residual < 0.30:
             rec = "maintain"
+
+        elif safety >= 0.38:
+            rec = "maintain"
+
         else:
             rec = "observe"
 
@@ -678,3 +700,4 @@ with right:
         st.info(T["empty"])
 
     st.markdown('</div>', unsafe_allow_html=True)
+    
