@@ -467,7 +467,7 @@ def main():
 
         save_result(row)
         send_to_google_form(row)
-        send_admin_email(row, result)
+      
 
         st.success(t(language, "送信されました。", "Submitted successfully."))
 
