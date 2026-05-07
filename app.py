@@ -1,703 +1,559 @@
-from typing import List
+import os
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from datetime import datetime
+from pathlib import Path
+
+import pandas as pd
 import streamlit as st
+import requests
 
-st.set_page_config(
-    page_title="ACT Clinical Decision Support",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
 
-# =========================================================
-# Language
-# =========================================================
-LANG = {
-    "English": {
-        "title": "ACT Clinical Decision Support",
-        "about": "About this app",
-        "about_text": (
-            "For psoriasis, DLQI is always used and PASI can be added with Use PASI. "
-            "DLQI–PASI divergence is used to reduce overconfident structural convergence. "
-            "The psoriasis logic is tuned to support escalation when residual burden and "
-            "structural convergence coexist."
-        ),
-        "input": "Input",
-        "output": "Output",
-        "disease": "Disease",
-        "ad": "Atopic Dermatitis",
-        "psoriasis": "Psoriasis",
-        "duration": "Duration / observation window",
-        "trajectory": "Trajectory",
-        "response": "Response",
-        "improving": "Improving",
-        "stable": "Stable",
-        "worsening": "Worsening",
-        "good": "Good",
-        "partial": "Partial",
-        "none": "None",
-        "metrics": "Metrics",
-        "metric_guide": "Metric guide",
-        "use_pasi": "Use PASI",
-        "run": "Run ACT Analysis",
-        "input_summary": "Input Summary",
-        "act_core": "ACT Core",
-        "recommendation": "Recommendation",
-        "convergence": "Convergence",
-        "residual": "Residual",
-        "eie": "EIE",
-        "score": "Score",
-        "safety": "Safety",
-        "improvement": "Improvement",
-        "divergence": "DLQI–PASI Divergence",
-        "severity": "Severity",
-        "interpretation": "Interpretation",
-        "empty": "Enter values on the left and run the analysis.",
-        "psoriasis_logic": (
-            "Psoriasis logic uses DLQI/PASI residual burden, structural convergence, "
-            "DLQI–PASI divergence, and severity-adjusted EIE. Escalation is favored "
-            "when residual disease burden and structural convergence coexist."
-        ),
-        "duration_note": (
-            "Duration is intentionally weakly reflected as a supporting factor, "
-            "not as a dominant driver."
-        ),
-        "ad_logic": (
-            "AD logic uses ADCT-weighted residual burden, convergence, EIE, "
-            "and disease-control thresholds."
-        ),
-        "escalate": "🔴 ESCALATE",
-        "optimize": "🟠 OPTIMIZE",
-        "maintain": "🟢 MAINTAIN",
-        "observe": "⚪ OBSERVE",
-    },
-    "日本語": {
-        "title": "ACT 臨床意思決定支援",
-        "about": "このアプリについて",
-        "about_text": (
-            "乾癬ではDLQIを必須指標とし、Use PASIをオンにするとPASIを追加できます。"
-            "DLQI–PASIの乖離を用いて、構造的一致性の過大評価を抑制します。"
-            "乾癬ロジックでは、残存負荷と構造的一致性が共存する場合に、"
-            "治療強化が出やすいように調整しています。"
-        ),
-        "input": "入力",
-        "output": "出力",
-        "disease": "疾患",
-        "ad": "アトピー性皮膚炎",
-        "psoriasis": "乾癬",
-        "duration": "期間 / 観察ウィンドウ",
-        "trajectory": "経過",
-        "response": "治療反応",
-        "improving": "改善",
-        "stable": "安定",
-        "worsening": "悪化",
-        "good": "良好",
-        "partial": "部分的",
-        "none": "なし",
-        "metrics": "指標",
-        "metric_guide": "指標ガイド",
-        "use_pasi": "PASIを使用",
-        "run": "ACT解析を実行",
-        "input_summary": "入力サマリー",
-        "act_core": "ACTコア",
-        "recommendation": "推奨",
-        "convergence": "構造的一致性",
-        "residual": "残存負荷",
-        "eie": "EIE",
-        "score": "スコア",
-        "safety": "安全性",
-        "improvement": "改善度",
-        "divergence": "DLQI–PASI乖離",
-        "severity": "重症度",
-        "interpretation": "解釈",
-        "empty": "左側に値を入力し、解析を実行してください。",
-        "psoriasis_logic": (
-            "乾癬ロジックでは、DLQI/PASIの残存負荷、構造的一致性、"
-            "DLQI–PASI乖離、重症度補正EIEを用いています。"
-            "残存負荷と構造的一致性が共存する場合、治療強化を支持しやすくしています。"
-        ),
-        "duration_note": (
-            "期間は意図的に弱く反映しており、主要因ではなく補助因子として扱います。"
-        ),
-        "ad_logic": (
-            "ADロジックでは、ADCTを重視した残存負荷、構造的一致性、EIE、"
-            "疾患コントロール閾値を用いています。"
-        ),
-        "escalate": "🔴 強化",
-        "optimize": "🟠 最適化",
-        "maintain": "🟢 維持",
-        "observe": "⚪ 経過観察",
-    }
-}
+APP_TITLE = "Shirabeo Labs | Patient Insight"
 
-language = st.sidebar.selectbox("Language / 言語", ["English", "日本語"])
-T = LANG[language]
+CSV_PATH_ADCT = Path("adct_results.csv")
+CSV_PATH_DLQI = Path("dlqi_results.csv")
 
-DISEASE_MAP = {
-    T["ad"]: "Atopic Dermatitis",
-    T["psoriasis"]: "Psoriasis",
-}
+ADMIN_EMAIL = "komura@shirabeo.com"
 
-TRAJECTORY_MAP = {
-    T["improving"]: "Improving",
-    T["stable"]: "Stable",
-    T["worsening"]: "Worsening",
-}
 
-RESPONSE_MAP = {
-    T["good"]: "Good",
-    T["partial"]: "Partial",
-    T["none"]: "None",
-}
+def send_to_google_form(row):
+    url = "https://docs.google.com/forms/d/e/1FAIpQLScC3M0830zqkGnnNsD8D_lOFoRwzyqFrd0ljMP6tAB530Jp1w/formResponse"
 
-# =========================================================
-# Helpers
-# =========================================================
-def clamp(x, lo=0.0, hi=1.0):
-    return max(lo, min(hi, x))
-
-def safe_mean(values):
-    return sum(values) / len(values) if values else 0.0
-
-# =========================================================
-# Metric processing
-# =========================================================
-def compute_metric_stats(name, prev, curr, min_v, max_v, weight=1.0):
-    scale = max(max_v - min_v, 1e-9)
-    delta = curr - prev
-    norm = delta / scale
-
-    burden_prev = clamp((prev - min_v) / scale)
-    burden_curr = clamp((curr - min_v) / scale)
-
-    return {
-        "name": name,
-        "prev": prev,
-        "curr": curr,
-        "delta": delta,
-        "normalized_delta": norm,
-        "burden_prev": burden_prev,
-        "burden_curr": burden_curr,
-        "improvement_gain": max(0.0, burden_prev - burden_curr),
-        "weight": weight,
+    data = {
+        "entry.1599902592": row.get("visit_code", ""),
+        "entry.1495391757": row.get("total_score", ""),
+        "entry.1432435158": row.get("decision", ""),
+        "entry.1577092948": row.get("timestamp", ""),
     }
 
-# =========================================================
-# Convergence
-# =========================================================
-def compute_convergence(metrics: List[dict]) -> float:
-    if not metrics:
-        return 0.0
+    try:
+        res = requests.post(url, data=data, timeout=10)
+        print("FORM STATUS:", res.status_code)
+        return res.status_code in [200, 302]
+    except Exception as e:
+        print("FORM ERROR:", e)
+        return False
 
-    weighted = [m.get("weight", 1.0) * m["normalized_delta"] for m in metrics]
 
-    signs = [1 if v > 0 else -1 if v < 0 else 0 for v in weighted]
-    nz = [s for s in signs if s != 0]
+DLQI_QUESTIONS_JA = [
+    "この1週間で、皮膚のかゆみ・痛み・ヒリヒリ感・しみる感じはどの程度ありましたか？",
+    "この1週間で、皮膚のために恥ずかしい、または人目が気になると感じたことはどの程度ありましたか？",
+    "この1週間で、皮膚のために買い物、家事、庭仕事などにどの程度支障がありましたか？",
+    "この1週間で、皮膚のために着る服にどの程度影響がありましたか？",
+    "この1週間で、皮膚のために社交・余暇活動にどの程度影響がありましたか？",
+    "この1週間で、皮膚のためにスポーツがどの程度困難でしたか？",
+    "この1週間で、皮膚のために仕事や勉強ができませんでしたか？",
+    "この1週間で、皮膚のために配偶者、友人、家族との関係にどの程度問題がありましたか？",
+    "この1週間で、皮膚のために性的な困難がどの程度ありましたか？",
+    "この1週間で、皮膚の治療がどの程度問題になりましたか？ 例：家が汚れる、時間がかかるなど。",
+]
 
-    if not nz:
-        coherence = 1.0
-    else:
-        dom = 1 if sum(nz) >= 0 else -1
-        coherence = sum(1 for s in nz if s == dom) / len(nz)
+DLQI_QUESTIONS_EN = [
+    "Over the last week, how itchy, sore, painful or stinging has your skin been?",
+    "Over the last week, how embarrassed or self-conscious have you been because of your skin?",
+    "Over the last week, how much has your skin interfered with you going shopping or looking after your home or garden?",
+    "Over the last week, how much has your skin influenced the clothes you wear?",
+    "Over the last week, how much has your skin affected any social or leisure activities?",
+    "Over the last week, how much has your skin made it difficult for you to do any sport?",
+    "Over the last week, has your skin prevented you from working or studying?",
+    "Over the last week, how much has your skin created problems with your partner or any of your close friends or relatives?",
+    "Over the last week, how much has your skin caused any sexual difficulties?",
+    "Over the last week, how much of a problem has the treatment for your skin been, for example by making your home messy, or by taking up time?",
+]
 
-    abs_vals = [abs(v) for v in weighted]
-    mean_val = safe_mean(abs_vals)
-    magnitude = clamp(mean_val * 3.0)
+DLQI_OPTIONS_JA = {
+    "全くない / 該当しない": 0,
+    "少し": 1,
+    "かなり": 2,
+    "非常に": 3,
+}
 
-    var = safe_mean([(x - mean_val) ** 2 for x in abs_vals])
-    compactness = 1 / (1 + 5 * var)
+DLQI_OPTIONS_EN = {
+    "Not at all / Not relevant": 0,
+    "A little": 1,
+    "A lot": 2,
+    "Very much": 3,
+}
 
-    convergence = clamp(
-        0.60 * coherence +
-        0.30 * magnitude +
-        0.10 * compactness
+DLQI_Q7_OPTIONS_JA = {
+    "はい、仕事または勉強ができなかった": 3,
+    "いいえ、ただし仕事または勉強に支障があった": 2,
+    "いいえ": 0,
+    "該当しない": 0,
+}
+
+DLQI_Q7_OPTIONS_EN = {
+    "Yes — prevented work or studying": 3,
+    "No, but skin was a problem at work or studying": 2,
+    "No": 0,
+    "Not relevant": 0,
+}
+
+
+ADCT_QUESTIONS_JA = [
+    "この1週間、アトピー性皮膚炎の症状はどの程度でしたか。",
+    "この1週間、アトピー性皮膚炎のために激しいかゆみが起こったことは何日ありましたか。",
+    "この1週間、アトピー性皮膚炎にどの程度悩まされましたか。",
+    "この1週間、アトピー性皮膚炎のためになかなか寝付けなかったり、途中で目が覚めたりすることが何晩ありましたか。",
+    "この1週間、アトピー性皮膚炎がどの程度日常の活動に影響しましたか。",
+    "この1週間、アトピー性皮膚炎がどの程度気分や感情に影響しましたか。",
+]
+
+ADCT_QUESTIONS_EN = [
+    "Over the last week, how would you rate your eczema symptoms?",
+    "Over the last week, on how many days did you have intense episodes of itching because of your eczema?",
+    "Over the last week, how bothered have you been by your eczema?",
+    "Over the last week, on how many nights did you have difficulty falling asleep or wake up during the night because of your eczema?",
+    "Over the last week, how much did your eczema affect your daily activities?",
+    "Over the last week, how much did your eczema affect your mood or emotions?",
+]
+
+ADCT_OPTIONS_JA = [
+    {"なし": 0, "軽い": 1, "中くらい": 2, "ひどい": 3, "かなりひどい": 4},
+    {"全くなかった": 0, "1〜2日": 1, "3〜4日": 2, "5〜6日": 3, "毎日": 4},
+    {"全くなかった": 0, "少し": 1, "ある程度": 2, "とても": 3, "極めて": 4},
+    {"全くなかった": 0, "1〜2晩": 1, "3〜4晩": 2, "5〜6晩": 3, "毎晩": 4},
+    {"全くなかった": 0, "少し": 1, "ある程度": 2, "とても": 3, "極めて": 4},
+    {"全くなかった": 0, "少し": 1, "ある程度": 2, "とても": 3, "極めて": 4},
+]
+
+ADCT_OPTIONS_EN = [
+    {"None": 0, "Mild": 1, "Moderate": 2, "Severe": 3, "Very severe": 4},
+    {"Not at all": 0, "1–2 days": 1, "3–4 days": 2, "5–6 days": 3, "Every day": 4},
+    {"Not at all": 0, "A little": 1, "Moderately": 2, "Very much": 3, "Extremely": 4},
+    {"Not at all": 0, "1–2 nights": 1, "3–4 nights": 2, "5–6 nights": 3, "Every night": 4},
+    {"Not at all": 0, "A little": 1, "Moderately": 2, "Very much": 3, "Extremely": 4},
+    {"Not at all": 0, "A little": 1, "Moderately": 2, "Very much": 3, "Extremely": 4},
+]
+
+
+def get_secret(name: str, default: str | None = None) -> str | None:
+    try:
+        if name in st.secrets:
+            return str(st.secrets[name])
+    except Exception:
+        pass
+    return os.getenv(name, default)
+
+
+def t(language: str, ja: str, en: str) -> str:
+    return ja if language == "日本語" else en
+
+
+def interpret_dlqi(score: int, language: str) -> tuple[str, str]:
+    if score <= 1:
+        return t(language, "影響なし", "No effect"), t(language, "生活への明らかな影響はほとんどありません。", "No measurable effect on the patient's life.")
+    if score <= 5:
+        return t(language, "軽度の影響", "Small effect"), t(language, "生活への影響は軽度です。", "Small effect on the patient's life.")
+    if score <= 10:
+        return t(language, "中等度の影響", "Moderate effect"), t(language, "生活への影響は中等度です。", "Moderate effect on the patient's life.")
+    if score <= 20:
+        return t(language, "非常に大きな影響", "Very large effect"), t(language, "生活への影響は非常に大きい状態です。", "Very large effect on the patient's life.")
+    return t(language, "極めて大きな影響", "Extremely large effect"), t(language, "生活への影響は極めて大きい状態です。", "Extremely large effect on the patient's life.")
+
+
+def interpret_adct(score: int, language: str) -> tuple[str, str]:
+    if score >= 7:
+        return (
+            t(language, "コントロール不十分の可能性", "Possible uncontrolled atopic dermatitis"),
+            t(language, "ADCTが7点以上です。症状、睡眠、日常生活への影響を確認してください。", "ADCT is 7 or higher. Review symptoms, sleep, and daily-life impact."),
+        )
+    return (
+        t(language, "比較的コントロール良好", "Relatively controlled"),
+        t(language, "ADCTは7点未満です。通常診療で確認を継続してください。", "ADCT is below 7. Continue routine clinical assessment."),
     )
 
-    # Single-indicator ACT should not overclaim structural convergence
-    if len(metrics) == 1:
-        convergence *= 0.60
 
-    return clamp(convergence)
+def get_csv_path(instrument: str) -> Path:
+    return CSV_PATH_ADCT if instrument == "ADCT" else CSV_PATH_DLQI
 
-# =========================================================
-# Psoriasis-specific logic
-# =========================================================
-def compute_psoriasis_divergence(metric_map):
-    dlqi = metric_map.get("DLQI")
-    pasi = metric_map.get("PASI")
 
-    if dlqi is None or pasi is None:
-        return 0.0
+def save_result(row: dict):
+    csv_path = get_csv_path(row.get("instrument", ""))
+    df = pd.DataFrame([row])
 
-    return clamp(abs(dlqi["burden_curr"] - pasi["burden_curr"]))
+    if csv_path.exists():
+        df.to_csv(csv_path, mode="a", header=False, index=False, encoding="utf-8-sig")
+    else:
+        df.to_csv(csv_path, index=False, encoding="utf-8-sig")
 
-def compute_psoriasis_severity(metric_map):
-    dlqi = metric_map.get("DLQI")
-    pasi = metric_map.get("PASI")
 
-    vals = []
-    if dlqi is not None:
-        vals.append(dlqi["burden_curr"])
-    if pasi is not None:
-        vals.append(pasi["burden_curr"])
-
-    return clamp(max(vals) if vals else 0.0)
-
-# =========================================================
-# ACT score
-# =========================================================
-def score_act(disease, duration, progression, response, metrics):
-    if not metrics:
+def get_previous_adct(patient_code: str):
+    if not patient_code or not CSV_PATH_ADCT.exists():
         return None
 
-    metric_map = {m["name"]: m for m in metrics}
+    try:
+        df = pd.read_csv(CSV_PATH_ADCT, on_bad_lines="skip")
+    except Exception:
+        return None
 
-    total_w = sum(m.get("weight", 1.0) for m in metrics)
-    residual = sum(m["burden_curr"] * m.get("weight", 1.0) for m in metrics) / total_w
-    improvement = sum(m["improvement_gain"] * m.get("weight", 1.0) for m in metrics) / total_w
+    if "visit_code" not in df.columns or "total_score" not in df.columns:
+        return None
 
-    convergence = compute_convergence(metrics)
+    df_ad = df[df["visit_code"].astype(str) == str(patient_code)]
 
-    response_factor = {"Good": 1.0, "Partial": 0.8, "None": 0.5}[response]
-    traj_factor = {"Improving": 0.8, "Stable": 0.9, "Worsening": 1.0}[progression]
+    if df_ad.empty:
+        return None
 
-    # Duration is intentionally weak
-    duration_factor = clamp(duration / 60.0)
+    last_row = df_ad.sort_values("timestamp").iloc[-1]
+    return int(last_row["total_score"])
 
-    divergence = 0.0
-    severity = residual
 
-    if disease == "Psoriasis":
-        divergence = compute_psoriasis_divergence(metric_map)
-        severity = compute_psoriasis_severity(metric_map)
+def judge_maintenance(current, previous, scores):
+    if current >= 7:
+        return "非維持"
 
-        # Penalize convergence when DLQI and PASI are structurally discordant
-        convergence = clamp(convergence * (1.0 - 0.45 * divergence))
+    if len(scores) >= 4 and scores[3] >= 1:
+        return "非維持"
 
-    safety = clamp(
-        0.32 * convergence +
-        0.23 * response_factor +
-        0.18 * traj_factor +
-        0.20 * residual +
-        0.07 * duration_factor
-    )
+    for i, s in enumerate(scores):
+        if i == 3:
+            continue
+        if s >= 2:
+            return "非維持"
 
-    residual_opportunity = clamp(
-        0.48 * residual +
-        0.27 * improvement +
-        0.20 * convergence +
-        0.05 * duration_factor
-    )
+    if previous is not None and (current - previous) >= 5:
+        return "非維持"
 
-    eie_core = 0.35 * safety + 0.65 * residual_opportunity
-    eie = clamp(eie_core * (0.40 + 0.60 * convergence))
+    return "維持"
 
-    if disease == "Psoriasis":
-        # Slightly more escalation-sensitive psoriasis tuning
-        severity_boost = 0.88 + 0.32 * severity
-        divergence_penalty = 1.0 - 0.28 * divergence
-        eie = clamp(eie * severity_boost * divergence_penalty)
 
-    if disease == "Atopic Dermatitis":
-        adct = metric_map.get("ADCT", {}).get("curr", None)
-        adct_delta = metric_map.get("ADCT", {}).get("delta", 0)
+def build_email_body(row: dict, result: dict) -> str:
+    lines = [
+        "New questionnaire submission",
+        "",
+        f"App: {APP_TITLE}",
+        f"Timestamp: {row.get('timestamp', '')}",
+        f"Language: {row.get('language', '')}",
+        f"Disease: {row.get('disease', '')}",
+        f"Instrument: {row.get('instrument', '')}",
+        f"Anonymous visit code: {row.get('visit_code', '') or '(blank)'}",
+        f"Total score: {row.get('total_score', '')} / {row.get('max_score', '')}",
+        f"Severity / interpretation: {row.get('severity', '')}",
+        f"Decision: {row.get('decision', '')}",
+        f"Previous ADCT: {row.get('previous_adct', '')}",
+        f"Delta ADCT: {row.get('delta_adct', '')}",
+        "",
+        "Item scores:",
+    ]
 
-        if convergence < 0.25:
-            rec = "observe"
-        elif adct is not None and adct <= 2:
-            rec = "observe"
-        elif adct_delta > 2 and eie > 0.5:
-            rec = "escalate"
-        elif adct is not None and adct >= 7:
-            rec = "escalate" if convergence >= 0.40 and eie >= 0.60 else "optimize"
-        elif eie >= 0.40:
-            rec = "optimize"
-        elif safety >= 0.40:
-            rec = "maintain"
-        else:
-            rec = "observe"
+    for i, score in enumerate(result["scores"], start=1):
+        answer = result["answers"][i - 1]
+        lines.append(f"Q{i}: {score} | {answer}")
 
-    else:
-        dlqi_curr = metric_map.get("DLQI", {}).get("curr", None)
-        pasi_curr = metric_map.get("PASI", {}).get("curr", None)
+    lines.extend([
+        "",
+        "Note:",
+        "This message is intended for clinical support only.",
+        "No direct personal identifiers should be entered into this app.",
+    ])
+    return "\n".join(lines)
 
-        severe_psoriasis = False
-        if dlqi_curr is not None and dlqi_curr >= 10:
-            severe_psoriasis = True
-        if pasi_curr is not None and pasi_curr >= 10:
-            severe_psoriasis = True
 
-        # -------------------------------------------------
-        # Revised psoriasis recommendation logic
-        # Aim:
-        # - Reduce excessive OPTIMIZE calls
-        # - Increase ESCALATE when residual burden + convergence coexist
-        # - Avoid over-escalation when DLQI/PASI are discordant
-        # -------------------------------------------------
-        if convergence < 0.22:
-            rec = "observe"
+def send_admin_email(row: dict, result: dict) -> tuple[bool, str]:
+    smtp_host = get_secret("SMTP_HOST")
+    smtp_port = int(get_secret("SMTP_PORT", "587"))
+    smtp_user = get_secret("SMTP_USER")
+    smtp_password = get_secret("SMTP_PASSWORD")
+    smtp_from = get_secret("SMTP_FROM", smtp_user or ADMIN_EMAIL)
 
-        elif severe_psoriasis and residual >= 0.38 and convergence >= 0.35 and divergence < 0.45:
-            rec = "escalate"
+    missing = [
+        name for name, value in {
+            "SMTP_HOST": smtp_host,
+            "SMTP_USER": smtp_user,
+            "SMTP_PASSWORD": smtp_password,
+            "SMTP_FROM": smtp_from,
+        }.items() if not value
+    ]
 
-        elif eie >= 0.52 and residual >= 0.32 and convergence >= 0.30 and divergence < 0.50:
-            rec = "escalate"
+    if missing:
+        return False, "Missing email settings: " + ", ".join(missing)
 
-        elif divergence >= 0.45 and severity >= 0.40:
-            rec = "optimize"
+    subject = f"[Shirabeo Patient Insight] New {row['instrument']} Submission: {row['total_score']}/{row['max_score']}"
+    body = build_email_body(row, result)
 
-        elif eie >= 0.42 and residual >= 0.28:
-            rec = "optimize"
+    msg = MIMEMultipart()
+    msg["From"] = smtp_from
+    msg["To"] = ADMIN_EMAIL
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain", "utf-8"))
 
-        elif safety >= 0.42 and residual < 0.30:
-            rec = "maintain"
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_from, [ADMIN_EMAIL], msg.as_string())
+        return True, "Email sent successfully."
+    except Exception as e:
+        print("EMAIL ERROR:", e)
+        return False, f"Email sending failed: {e}"
 
-        elif safety >= 0.38:
-            rec = "maintain"
 
-        else:
-            rec = "observe"
+def render_dlqi(language: str):
+    questions = DLQI_QUESTIONS_JA if language == "日本語" else DLQI_QUESTIONS_EN
+    options_common = DLQI_OPTIONS_JA if language == "日本語" else DLQI_OPTIONS_EN
+    q7_options = DLQI_Q7_OPTIONS_JA if language == "日本語" else DLQI_Q7_OPTIONS_EN
+
+    scores = []
+    answers = []
+
+    for i, q in enumerate(questions, start=1):
+        st.markdown(f"**Q{i}. {q}**")
+        opts = q7_options if i == 7 else options_common
+        answer = st.radio(
+            t(language, f"Q{i}の回答", f"Answer Q{i}"),
+            list(opts.keys()),
+            key=f"dlqi_{language}_{i}",
+            label_visibility="collapsed",
+        )
+        scores.append(opts[answer])
+        answers.append(answer)
+        st.write("")
+
+    total = int(sum(scores))
+    severity, interpretation = interpret_dlqi(total, language)
 
     return {
-        "eie": eie,
-        "convergence": convergence,
-        "residual": residual,
-        "safety": safety,
-        "improvement": improvement,
-        "divergence": divergence,
+        "instrument": "DLQI",
+        "disease": "Psoriasis",
+        "total_score": total,
+        "max_score": 30,
         "severity": severity,
-        "rec": rec,
-        "score": int(eie * 100),
+        "interpretation": interpretation,
+        "scores": scores,
+        "answers": answers,
     }
 
-# =========================================================
-# UI helpers
-# =========================================================
-def rec_label(rec: str) -> str:
+
+def render_adct(language: str):
+    questions = ADCT_QUESTIONS_JA if language == "日本語" else ADCT_QUESTIONS_EN
+    options_list = ADCT_OPTIONS_JA if language == "日本語" else ADCT_OPTIONS_EN
+
+    scores = []
+    answers = []
+
+    for i, q in enumerate(questions, start=1):
+        st.markdown(f"**Q{i}. {q}**")
+        opts = options_list[i - 1]
+        answer = st.radio(
+            t(language, f"Q{i}の回答", f"Answer Q{i}"),
+            list(opts.keys()),
+            key=f"adct_{language}_{i}",
+            label_visibility="collapsed",
+        )
+        scores.append(opts[answer])
+        answers.append(answer)
+        st.write("")
+
+    total = int(sum(scores))
+    severity, interpretation = interpret_adct(total, language)
+
     return {
-        "escalate": T["escalate"],
-        "optimize": T["optimize"],
-        "maintain": T["maintain"],
-        "observe": T["observe"],
-    }.get(rec, rec.upper())
+        "instrument": "ADCT",
+        "disease": "Atopic dermatitis",
+        "total_score": total,
+        "max_score": 24,
+        "severity": severity,
+        "interpretation": interpretation,
+        "scores": scores,
+        "answers": answers,
+    }
 
-def metric_delta_text(prev: float, curr: float) -> str:
-    diff = curr - prev
-    sign = "+" if diff > 0 else ""
-    return f"{sign}{diff:.1f}"
 
-# =========================================================
-# CSS
-# =========================================================
-st.markdown(
-    """
-    <style>
-    .block-container {
-        max-width: 1500px;
-        padding-top: 0.8rem;
-        padding-bottom: 0.35rem;
-        padding-left: 0.9rem;
-        padding-right: 0.9rem;
-    }
-    h1 {
-        margin-top: 0.3rem !important;
-        margin-bottom: 0.4rem !important;
-        line-height: 1.35 !important;
-    }
-    h2, h3 {
-        margin-top: 0rem !important;
-        margin-bottom: 0.3rem !important;
-    }
-    .panel {
-        background: #ffffff;
-        border: 1px solid #e5e7eb;
-        border-radius: 14px;
-        padding: 0.7rem 0.8rem 0.65rem 0.8rem;
-        box-shadow: 0 1px 6px rgba(0,0,0,0.04);
-        height: 100%;
-    }
-    .section-label {
-        font-size: 1rem;
-        font-weight: 700;
-        margin-bottom: 0.35rem;
-    }
-    .small-label {
-        font-size: 0.8rem;
-        color: #6b7280;
-        margin-bottom: 0.1rem;
-    }
-    .rec-box {
-        border-radius: 14px;
-        padding: 0.8rem 0.7rem;
-        text-align: center;
-        font-weight: 800;
-        font-size: 1.4rem;
-        margin-bottom: 0.45rem;
-        border: 1px solid transparent;
-    }
-    .rec-escalate {
-        background: #fee2e2;
-        color: #991b1b;
-        border-color: #fecaca;
-    }
-    .rec-optimize {
-        background: #ffedd5;
-        color: #9a3412;
-        border-color: #fed7aa;
-    }
-    .rec-maintain {
-        background: #dcfce7;
-        color: #166534;
-        border-color: #bbf7d0;
-    }
-    .rec-observe {
-        background: #f3f4f6;
-        color: #374151;
-        border-color: #e5e7eb;
-    }
-    div[data-testid="stMetric"] {
-        background: #fafafa;
-        border: 1px solid #eeeeee;
-        padding: 0.22rem 0.42rem;
-        border-radius: 10px;
-    }
-    div[data-testid="stMetricLabel"] {
-        font-size: 0.74rem !important;
-    }
-    div[data-testid="stMetricValue"] {
-        font-size: 1.15rem !important;
-    }
-    div[data-testid="stMetricDelta"] {
-        font-size: 0.76rem !important;
-    }
-    .stButton > button {
-        height: 2.4rem;
-        font-weight: 700;
-        border-radius: 10px;
-    }
-    .compact-note {
-        font-size: 0.78rem;
-        color: #6b7280;
-        line-height: 1.25;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+def show_csv_tab(label: str, csv_path: Path, file_name: str):
+    st.subheader(label)
 
-# =========================================================
-# Header
-# =========================================================
-st.title(T["title"])
+    if not csv_path.exists():
+        st.info(f"{label}データはまだありません。")
+        return
 
-with st.expander(T["about"]):
-    st.write(T["about_text"])
+    csv_bytes = csv_path.read_bytes()
+    st.download_button(
+        f"{label} CSVダウンロード",
+        data=csv_bytes,
+        file_name=file_name,
+        mime="text/csv",
+        use_container_width=True,
+    )
 
-# =========================================================
-# Session state
-# =========================================================
-if "act_has_run" not in st.session_state:
-    st.session_state.act_has_run = False
-if "act_result" not in st.session_state:
-    st.session_state.act_result = None
-if "act_metrics" not in st.session_state:
-    st.session_state.act_metrics = []
-if "act_disease" not in st.session_state:
-    st.session_state.act_disease = None
-if "act_display_disease" not in st.session_state:
-    st.session_state.act_display_disease = None
-if "act_duration" not in st.session_state:
-    st.session_state.act_duration = None
-if "act_progression_label" not in st.session_state:
-    st.session_state.act_progression_label = None
-if "act_response_label" not in st.session_state:
-    st.session_state.act_response_label = None
+    try:
+        df = pd.read_csv(csv_path, on_bad_lines="skip")
+        st.dataframe(df.tail(30), use_container_width=True)
+    except Exception as e:
+        st.warning(f"{label} CSVの読み込みに失敗しました。")
+        st.caption(str(e))
 
-# =========================================================
-# Layout
-# =========================================================
-left, right = st.columns([1.0, 1.05], gap="small")
 
-# ---------------------------------------------------------
-# LEFT: INPUT
-# ---------------------------------------------------------
-with left:
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-label">{T["input"]}</div>', unsafe_allow_html=True)
+def main():
+    st.set_page_config(page_title=APP_TITLE, page_icon="📝", layout="centered")
 
-    top1, top2 = st.columns(2)
-    with top1:
-        disease_label = st.selectbox(T["disease"], [T["ad"], T["psoriasis"]])
-        disease = DISEASE_MAP[disease_label]
-    with top2:
-        duration = st.number_input(
-            T["duration"],
-            value=15.0,
-            min_value=0.0,
-            step=1.0
+    st.title(APP_TITLE)
+    st.caption("DLQI for psoriasis / ADCT for atopic dermatitis")
+
+    language = st.sidebar.radio("Language / 言語", ["日本語", "English"], index=0)
+
+    disease_mode = st.sidebar.radio(
+        t(language, "疾患・質問票", "Disease / questionnaire"),
+        [
+            t(language, "乾癬：DLQI", "Psoriasis: DLQI"),
+            t(language, "アトピー性皮膚炎：ADCT", "Atopic dermatitis: ADCT"),
+        ],
+        index=1,
+    )
+
+    st.info(
+        t(
+            language,
+            "過去1週間を振り返って回答してください。氏名・生年月日・住所・患者IDなどの直接個人情報は入力しないでください。",
+            "Please answer based on the last 7 days. Do not enter direct personal identifiers such as name, date of birth, address, or patient ID.",
+        )
+    )
+
+    with st.form("questionnaire_form", clear_on_submit=False):
+        visit_code = st.text_input(
+            t(language, "匿名コード", "Anonymous visit code"),
+            placeholder=t(language, "例：AD001。空欄でも可。", "Example: AD001. Optional."),
+            help=t(language, "匿名コードのみ使用してください。氏名や患者IDは入力しないでください。", "Use an anonymous code only. Do not enter name or patient ID."),
         )
 
-    top3, top4 = st.columns(2)
-    with top3:
-        progression_label = st.selectbox(T["trajectory"], [T["improving"], T["stable"], T["worsening"]])
-        progression = TRAJECTORY_MAP[progression_label]
-    with top4:
-        response_label = st.selectbox(T["response"], [T["good"], T["partial"], T["none"]])
-        response = RESPONSE_MAP[response_label]
+        st.divider()
 
-    st.markdown(f'<div class="small-label">{T["metrics"]}</div>', unsafe_allow_html=True)
+        if "DLQI" in disease_mode:
+            result = render_dlqi(language)
+        else:
+            result = render_adct(language)
 
-    metrics = []
+        submitted = st.form_submit_button(
+            t(language, "送信", "Submit"),
+            use_container_width=True
+        )
 
-    if disease == "Atopic Dermatitis":
-        with st.expander(T["metric_guide"]):
-            st.write("ADCT: 0–24")
-            st.write("EASI: 0–72")
-            st.write("Itch NRS: 0–10")
-            st.write("Sleep NRS: 0–10")
+    if submitted:
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        m1, m2 = st.columns(2)
-        with m1:
-            adct_prev = st.number_input("ADCT prev", value=20.0, min_value=0.0, max_value=24.0, key="adct_prev")
-        with m2:
-            adct_curr = st.number_input("ADCT curr", value=1.0, min_value=0.0, max_value=24.0, key="adct_curr")
+        previous_adct = None
+        delta_adct = None
+        decision = ""
 
-        m3, m4 = st.columns(2)
-        with m3:
-            easi_prev = st.number_input("EASI prev", value=18.0, min_value=0.0, max_value=72.0, key="easi_prev")
-        with m4:
-            easi_curr = st.number_input("EASI curr", value=2.0, min_value=0.0, max_value=72.0, key="easi_curr")
-
-        m5, m6 = st.columns(2)
-        with m5:
-            itch_prev = st.number_input("Itch NRS prev", value=9.0, min_value=0.0, max_value=10.0, key="itch_prev")
-        with m6:
-            itch_curr = st.number_input("Itch NRS curr", value=5.0, min_value=0.0, max_value=10.0, key="itch_curr")
-
-        m7, m8 = st.columns(2)
-        with m7:
-            sleep_prev = st.number_input("Sleep NRS prev", value=8.0, min_value=0.0, max_value=10.0, key="sleep_prev")
-        with m8:
-            sleep_curr = st.number_input("Sleep NRS curr", value=1.0, min_value=0.0, max_value=10.0, key="sleep_curr")
-
-        metrics = [
-            compute_metric_stats("ADCT", adct_prev, adct_curr, 0, 24, weight=2.0),
-            compute_metric_stats("EASI", easi_prev, easi_curr, 0, 72, weight=1.0),
-            compute_metric_stats("Itch NRS", itch_prev, itch_curr, 0, 10, weight=1.2),
-            compute_metric_stats("Sleep NRS", sleep_prev, sleep_curr, 0, 10, weight=1.2),
-        ]
-
-    else:
-        with st.expander(T["metric_guide"]):
-            st.write("DLQI: 0–30")
-            st.write("PASI: 0–72")
-            st.write(T["duration_note"])
-
-        use_pasi = st.checkbox(T["use_pasi"], value=True)
-
-        p1, p2 = st.columns(2)
-        with p1:
-            dlqi_prev = st.number_input("DLQI prev", value=20.0, min_value=0.0, max_value=30.0, key="dlqi_prev")
-        with p2:
-            dlqi_curr = st.number_input("DLQI curr", value=10.0, min_value=0.0, max_value=30.0, key="dlqi_curr")
-
-        metrics = [
-            compute_metric_stats("DLQI", dlqi_prev, dlqi_curr, 0, 30, weight=1.4),
-        ]
-
-        if use_pasi:
-            p3, p4 = st.columns(2)
-            with p3:
-                pasi_prev = st.number_input("PASI prev", value=18.0, min_value=0.0, max_value=72.0, key="pasi_prev")
-            with p4:
-                pasi_curr = st.number_input("PASI curr", value=3.0, min_value=0.0, max_value=72.0, key="pasi_curr")
-
-            metrics.append(
-                compute_metric_stats("PASI", pasi_prev, pasi_curr, 0, 72, weight=1.6)
+        if result["instrument"] == "ADCT":
+            previous_adct = get_previous_adct(visit_code)
+            decision = judge_maintenance(
+                result["total_score"],
+                previous_adct,
+                result["scores"]
             )
+            if previous_adct is not None:
+                delta_adct = result["total_score"] - previous_adct
 
-    run = st.button(T["run"], use_container_width=True)
+        row = {
+            "timestamp": now,
+            "language": language,
+            "disease": result["disease"],
+            "instrument": result["instrument"],
+            "visit_code": visit_code,
+            "total_score": result["total_score"],
+            "max_score": result["max_score"],
+            "severity": result["severity"],
+            "previous_adct": previous_adct,
+            "delta_adct": delta_adct,
+            "decision": decision,
+        }
 
-    if run:
-        st.session_state.act_result = score_act(disease, duration, progression, response, metrics)
-        st.session_state.act_metrics = metrics
-        st.session_state.act_disease = disease
-        st.session_state.act_display_disease = disease_label
-        st.session_state.act_duration = duration
-        st.session_state.act_progression_label = progression_label
-        st.session_state.act_response_label = response_label
-        st.session_state.act_has_run = True
+        for i, score in enumerate(result["scores"], start=1):
+            row[f"q{i}_score"] = score
+            row[f"q{i}_answer"] = result["answers"][i - 1]
 
-    st.markdown('</div>', unsafe_allow_html=True)
+        save_result(row)
+        send_to_google_form(row)
+        send_admin_email(row, result)
 
-# ---------------------------------------------------------
-# RIGHT: OUTPUT
-# ---------------------------------------------------------
-with right:
-    st.markdown('<div class="panel">', unsafe_allow_html=True)
-    st.markdown(f'<div class="section-label">{T["output"]}</div>', unsafe_allow_html=True)
+        st.success(t(language, "送信されました。", "Submitted successfully."))
 
-    if st.session_state.act_has_run and st.session_state.act_result is not None:
-        r = st.session_state.act_result
-        metrics_out = st.session_state.act_metrics
-        disease_out = st.session_state.act_disease
+        st.metric(
+            result["instrument"] + " " + t(language, "合計点", "total score"),
+            f"{result['total_score']} / {result['max_score']}",
+        )
 
-        upper1, upper2 = st.columns([1.0, 1.0])
+        if result["instrument"] == "ADCT":
+            st.markdown("---")
 
-        with upper1:
-            st.markdown(f"**{T['input_summary']}**")
-            for m in metrics_out:
-                st.metric(
-                    m["name"],
-                    f"{m['curr']:.1f}",
-                    metric_delta_text(m["prev"], m["curr"])
+            if decision == "維持":
+                st.markdown(
+                    "<h1 style='text-align:center; color:green;'>🟢 維持</h1>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<p style='text-align:center; font-size:20px;'>現在の治療維持が妥当と考えられます</p>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    "<h1 style='text-align:center; color:red;'>🔴 非維持</h1>",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    "<p style='text-align:center; font-size:20px;'>状態の再評価を推奨します</p>",
+                    unsafe_allow_html=True,
                 )
 
-        with upper2:
-            st.markdown(f"**{T['act_core']}**")
-            st.metric(T["convergence"], f"{r['convergence']:.2f}")
-            st.metric(T["residual"], f"{r['residual']:.2f}")
-            st.metric(T["eie"], f"{r['eie']:.2f}")
-            st.metric(T["score"], r["score"])
-
-        rec_class = {
-            "escalate": "rec-escalate",
-            "optimize": "rec-optimize",
-            "maintain": "rec-maintain",
-            "observe": "rec-observe",
-        }[r["rec"]]
-
-        st.markdown(f"**{T['recommendation']}**")
-        st.markdown(
-            f'<div class="rec-box {rec_class}">{rec_label(r["rec"])}</div>',
-            unsafe_allow_html=True
-        )
-
-        low1, low2 = st.columns(2)
-        with low1:
-            st.metric(T["safety"], f"{r['safety']:.2f}")
-        with low2:
-            st.metric(T["improvement"], f"{r['improvement']:.2f}")
-
-        if disease_out == "Psoriasis":
-            p_low1, p_low2 = st.columns(2)
-            with p_low1:
-                st.metric(T["divergence"], f"{r['divergence']:.2f}")
-            with p_low2:
-                st.metric(T["severity"], f"{r['severity']:.2f}")
-
-        with st.expander(T["interpretation"]):
-            st.write(f"{T['disease']}: {st.session_state.act_display_disease}")
-            st.write(f"{T['duration']}: {st.session_state.act_duration:.1f}")
-            st.write(f"{T['trajectory']}: {st.session_state.act_progression_label}")
-            st.write(f"{T['response']}: {st.session_state.act_response_label}")
-
-            if disease_out == "Psoriasis":
-                st.write(T["psoriasis_logic"])
-                st.write(T["duration_note"])
+            if previous_adct is not None:
+                st.markdown(
+                    f"<p style='text-align:center;'>ADCT: {result['total_score']}（前回 {previous_adct}） / Δ {delta_adct}</p>",
+                    unsafe_allow_html=True,
+                )
             else:
-                st.write(T["ad_logic"])
+                st.markdown(
+                    f"<p style='text-align:center;'>ADCT: {result['total_score']}（初回）</p>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.subheader(result["severity"])
+            st.write(result["interpretation"])
 
-    else:
-        st.info(T["empty"])
+    st.divider()
 
-    st.markdown('</div>', unsafe_allow_html=True)
-    
+    show_admin = st.checkbox(
+        t(language, "医療者モードを表示", "Show clinician mode")
+    )
+
+    if show_admin:
+        with st.expander(
+            t(language, "医療者用：CSV確認・ダウンロード", "Clinician view: CSV review and download")
+        ):
+            admin_password = st.text_input(
+                t(language, "管理者パスワード", "Admin password"),
+                type="password",
+                help=t(language, "RenderのEnvironmentに ADMIN_PASSWORD を設定してください。", "Set ADMIN_PASSWORD in Render Environment."),
+            )
+
+            configured_password = get_secret("ADMIN_PASSWORD")
+
+            if not configured_password:
+                st.caption(
+                    t(language, "ADMIN_PASSWORD が未設定のため、CSV閲覧は無効です。", "CSV view is disabled because ADMIN_PASSWORD is not configured.")
+                )
+            elif admin_password == configured_password:
+                tab_adct, tab_dlqi = st.tabs(["ADCT", "DLQI"])
+
+                with tab_adct:
+                    show_csv_tab("ADCT", CSV_PATH_ADCT, "adct_results.csv")
+
+                with tab_dlqi:
+                    show_csv_tab("DLQI", CSV_PATH_DLQI, "dlqi_results.csv")
+
+            elif admin_password:
+                st.error(t(language, "パスワードが違います。", "Incorrect password."))
+
+    st.caption(
+        t(
+            language,
+            "このアプリは診療補助目的です。最終的な診療判断は医療者が行ってください。",
+            "For clinical support only. Final clinical decisions should be made by a qualified clinician.",
+        )
+    )
+
+
+if __name__ == "__main__":
+    main()
